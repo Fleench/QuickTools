@@ -33,4 +33,4 @@ python combine.py path/to/config.txt
 ```
 
 The script saves the combined output in `./combined-files` by default. Use `-o` to specify a different directory.
-Add `-t`/`--try-output` to preview the combined content without creating a file.
+Add `-t`/`--try-output` to preview the combined content without creating a file. When this option is used a file named `folders.txt` is created in the chosen output directory listing all folders that contained processed files.
