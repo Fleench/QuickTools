@@ -84,11 +84,23 @@ def should_ignore_path(path, ignore_patterns, base_path):
             return True
     return False
 
-def combine_files(config_file, output_dir="./combined-files"):
-    os.makedirs(output_dir, exist_ok=True)
+def combine_files(config_file, output_dir="./combined-files", try_output=False):
+    """Combine files using a config file.
+
+    If ``try_output`` is True, print the combined content to stdout instead of
+    creating a file.
+    """
+    if not try_output:
+        os.makedirs(output_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        output_file = os.path.join(output_dir, f"combined-{timestamp}.txt")
+        out_f = open(output_file, "w", encoding="utf-8")
+    else:
+        import io
+        out_f = io.StringIO()
+        output_file = "(preview)"
+
     configs, settings = parse_config(config_file)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    output_file = os.path.join(output_dir, f"combined-{timestamp}.txt")
     
     total_files = 0
     
@@ -100,7 +112,7 @@ def combine_files(config_file, output_dir="./combined-files"):
         extensions = None
         regex = re.compile(settings['search_query'])
 
-    with open(output_file, 'w', encoding='utf-8') as out_f:
+    try:
         for cfg in configs:
             print(f"Processing config: {cfg}")
             
@@ -167,23 +179,44 @@ def combine_files(config_file, output_dir="./combined-files"):
             print(f"Found {files_found} files in this config")
             total_files += files_found
     
-    print(f"✅ Combined file created at: {output_file}")
-    print(f"📁 Total files processed: {total_files}")
+    finally:
+        preview_text = out_f.getvalue() if try_output and hasattr(out_f, "getvalue") else None
+        if hasattr(out_f, "close"):
+            out_f.close()
+
+    if try_output:
+        # When previewing, display the combined text instead of saving a file
+        if preview_text is not None:
+            print(preview_text)
+        print(f"📁 Total files processed: {total_files}")
+    else:
+        print(f"✅ Combined file created at: {output_file}")
+        print(f"📁 Total files processed: {total_files}")
 
 def main():
     parser = argparse.ArgumentParser(
         description="Combine files from specified folders using a config file."
     )
     parser.add_argument("config", help="Path to your config file")
-    parser.add_argument("-o", "--output-dir", default="./combined-files",
-                        help="Directory to save the combined file (default: ./combined-files)")
+    parser.add_argument(
+        "-o",
+        "--output-dir",
+        default="./combined-files",
+        help="Directory to save the combined file (default: ./combined-files)",
+    )
+    parser.add_argument(
+        "-t",
+        "--try-output",
+        action="store_true",
+        help="Preview the combined content instead of saving a file",
+    )
     args = parser.parse_args()
 
     if not os.path.isfile(args.config):
         print(f"❌ Config file '{args.config}' does not exist.")
         sys.exit(1)
 
-    combine_files(args.config, args.output_dir)
+    combine_files(args.config, args.output_dir, args.try_output)
 
 if __name__ == "__main__":
     main()
