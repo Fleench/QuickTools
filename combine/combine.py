@@ -1,28 +1,73 @@
 import os
 import sys
+import re
 import argparse
 from datetime import datetime
 
 def parse_config(config_path):
+    """Parse configuration file.
+
+    Returns a tuple of (configs, settings).
+    """
+
     configs = []
-    current = {}
+    current = None
+    mode = None
+
+    settings = {
+        'recursive': True,
+        'search_mode': 'SIMPLE FILE EXTENSION',
+        'search_query': ['txt', 'md'],
+    }
+    raw_query = None
+
     with open(config_path, 'r') as f:
-        lines = [line.strip() for line in f if line.strip()]
+        lines = [line.strip() for line in f if line.strip() and not line.strip().startswith('---')]
+
     for line in lines:
         upper_line = line.upper()
+
         if upper_line.startswith('#'):
-            if current:
+            # Starting a new block
+            if mode == 'config' and current:
                 configs.append(current)
+                current = None
+
+            if upper_line.startswith('#SETTINGS'):
+                mode = 'settings'
+                continue
+
+            mode = 'config'
             current = {'root': False, 'search': '', 'ignore': []}
             if ':ROOT' in upper_line:
                 current['root'] = True
-        elif upper_line.startswith('SEARCH:'):
-            current['search'] = line.split(':',1)[1].strip()
-        elif upper_line.startswith('IGNORE:'):
-            current['ignore'] = [s.strip() for s in line.split(':',1)[1].split(';') if s.strip()]
-    if current:
+            continue
+
+        if mode == 'settings':
+            if upper_line.startswith('RECURSIVE:'):
+                value = line.split(':', 1)[1].strip().upper()
+                settings['recursive'] = value == 'TRUE'
+            elif upper_line.startswith('SEARCH MODE:'):
+                settings['search_mode'] = line.split(':', 1)[1].strip().upper()
+            elif upper_line.startswith('SEARCH QUERY:'):
+                raw_query = line.split(':', 1)[1].strip()
+        elif mode == 'config' and current is not None:
+            if upper_line.startswith('SEARCH:'):
+                current['search'] = line.split(':', 1)[1].strip()
+            elif upper_line.startswith('IGNORE:'):
+                current['ignore'] = [s.strip() for s in line.split(':', 1)[1].split(';') if s.strip()]
+
+    if mode == 'config' and current:
         configs.append(current)
-    return configs
+
+    # Finalise search query after settings parsed
+    if raw_query is not None:
+        if settings['search_mode'].startswith('SIMPLE'):
+            settings['search_query'] = [q.strip().lstrip('.').lower() for q in raw_query.split(';') if q.strip()]
+        else:
+            settings['search_query'] = raw_query
+
+    return configs, settings
 
 def should_ignore_path(path, ignore_patterns, base_path):
     """Check if a path should be ignored based on ignore patterns"""
@@ -41,12 +86,20 @@ def should_ignore_path(path, ignore_patterns, base_path):
 
 def combine_files(config_file, output_dir="./combined-files"):
     os.makedirs(output_dir, exist_ok=True)
-    configs = parse_config(config_file)
+    configs, settings = parse_config(config_file)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     output_file = os.path.join(output_dir, f"combined-{timestamp}.txt")
     
     total_files = 0
     
+    # Prepare search criteria based on settings
+    if settings['search_mode'].startswith('SIMPLE'):
+        extensions = [f".{ext.lstrip('.').lower()}" for ext in settings['search_query']]
+        regex = None
+    else:
+        extensions = None
+        regex = re.compile(settings['search_query'])
+
     with open(output_file, 'w', encoding='utf-8') as out_f:
         for cfg in configs:
             print(f"Processing config: {cfg}")
@@ -66,6 +119,11 @@ def combine_files(config_file, output_dir="./combined-files"):
 
             files_found = 0
             for dirpath, dirnames, filenames in os.walk(search_path):
+                # Respect non-recursive setting
+                if not settings['recursive'] and dirpath != search_path:
+                    dirnames[:] = []
+                    continue
+
                 # Filter out ignored directories
                 original_dirnames = dirnames.copy()
                 dirnames[:] = [
@@ -79,7 +137,13 @@ def combine_files(config_file, output_dir="./combined-files"):
                 
                 # Process files in current directory
                 for filename in sorted(filenames):
-                    if filename.lower().endswith(('.txt', '.md')):
+                    match = False
+                    fname_lower = filename.lower()
+                    if extensions is not None:
+                        match = any(fname_lower.endswith(ext) for ext in extensions)
+                    elif regex is not None:
+                        match = regex.search(filename) is not None
+                    if match:
                         file_path = os.path.join(dirpath, filename)
                         
                         # Check if file should be ignored
@@ -108,7 +172,7 @@ def combine_files(config_file, output_dir="./combined-files"):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Combine all .txt and .md files under specified folders into one file."
+        description="Combine files from specified folders using a config file."
     )
     parser.add_argument("config", help="Path to your config file")
     parser.add_argument("-o", "--output-dir", default="./combined-files",
