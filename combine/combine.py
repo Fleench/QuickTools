@@ -88,8 +88,11 @@ def combine_files(config_file, output_dir="./combined-files", try_output=False):
     """Combine files using a config file.
 
     If ``try_output`` is True, print the combined content to stdout instead of
-    creating a file.
+    creating a file. When running in this mode, a ``folders.txt`` file will be
+    created in ``output_dir`` listing all folders that contained processed
+    files.
     """
+    found_dirs = set()
     if not try_output:
         os.makedirs(output_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -97,6 +100,7 @@ def combine_files(config_file, output_dir="./combined-files", try_output=False):
         out_f = open(output_file, "w", encoding="utf-8")
     else:
         import io
+        os.makedirs(output_dir, exist_ok=True)
         out_f = io.StringIO()
         output_file = "(preview)"
 
@@ -157,14 +161,15 @@ def combine_files(config_file, output_dir="./combined-files", try_output=False):
                         match = regex.search(filename) is not None
                     if match:
                         file_path = os.path.join(dirpath, filename)
-                        
+
                         # Check if file should be ignored
                         if should_ignore_path(file_path, cfg['ignore'], search_path):
                             print(f"Ignoring file: {file_path}")
                             continue
-                        
+
                         print(f"Processing file: {file_path}")
                         files_found += 1
+                        found_dirs.add(dirpath)
                         out_f.write(f"=== {file_path} ===\n")
                         try:
                             with open(file_path, 'r', encoding='utf-8') as in_f:
@@ -185,10 +190,16 @@ def combine_files(config_file, output_dir="./combined-files", try_output=False):
             out_f.close()
 
     if try_output:
+        folders_path = os.path.join(output_dir, "folders.txt")
+        with open(folders_path, "w", encoding="utf-8") as ff:
+            for folder in sorted(found_dirs):
+                ff.write(folder + "\n")
+
         # When previewing, display the combined text instead of saving a file
         if preview_text is not None:
             print(preview_text)
         print(f"📁 Total files processed: {total_files}")
+        print(f"📄 Folder list saved to: {folders_path}")
     else:
         print(f"✅ Combined file created at: {output_file}")
         print(f"📁 Total files processed: {total_files}")
